@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATHANAS · Neural Engine / Mission Control</title>
+  <meta name="description" content="Autonomous Neural Engine — WebGPU · Rust/Wasm · Cyprus Planetarium" />
+
+  <!-- Fonts: Chakra Petch (display) + JetBrains Mono (telemetry) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600;700&family=JetBrains+Mono:wght@300;400;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════
+       LAYER 0 — Full-screen WebGPU canvas (background)
+  ═══════════════════════════════════════════════════════ -->
+  <canvas id="gpu-canvas" aria-hidden="true"></canvas>
+
+  <!-- Scan-line overlay for CRT texture -->
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       LAYER 1 — HUD Root
+  ═══════════════════════════════════════════════════════ -->
+  <div id="hud-root">
+
+    <!-- ── TOP BAR ─────────────────────────────────────── -->
+    <header id="top-bar">
+      <div class="top-left">
+        <div class="wordmark">
+          <span class="wordmark-ath">ATH</span><span class="wordmark-anas">ANAS</span>
+          <span class="wordmark-version">v0.9.1-alpha</span>
+        </div>
+        <div class="header-divider"></div>
+        <div class="mission-id">
+          <span class="label">MISSION</span>
+          <span class="value" id="mission-id">CY-PLN-2026-001</span>
+        </div>
+        <div class="mission-id">
+          <span class="label">OBSERVER</span>
+          <span class="value">34.9°N · 33.0°E</span>
+        </div>
+      </div>
+
+      <div class="top-center">
+        <div class="system-status" id="system-status-indicator">
+          <div class="pulse-ring"></div>
+          <div class="pulse-dot"></div>
+          <span id="status-text">NOMINAL</span>
+        </div>
+      </div>
+
+      <div class="top-right">
+        <div class="header-clock">
+          <div class="label">UTC+2 · CYPRUS</div>
+          <div class="clock-value" id="top-clock">--:--:--</div>
+        </div>
+        <div class="header-divider"></div>
+        <div class="header-clock">
+          <div class="label">JULIAN DATE</div>
+          <div class="clock-value" id="top-jd">2460772.-----</div>
+        </div>
+        <div class="header-divider"></div>
+        <button class="hud-btn" id="btn-emergency" title="Emergency Stop">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v6M7 10v.5M3.5 2.5l9 9M.5 12.5l9-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          HALT
+        </button>
+      </div>
+    </header>
+
+    <!-- ── MAIN CONTENT AREA ──────────────────────────── -->
+    <main id="main-stage">
+
+      <!-- LEFT PANEL — Telemetry -->
+      <aside id="panel-left" class="glass-panel slide-in-left">
+
+        <div class="panel-header">
+          <span class="panel-tag">SYS</span>
+          <span class="panel-title">System Telemetry</span>
+          <div class="panel-led ok"></div>
+        </div>
+
+        <!-- GPU Metrics -->
+        <section class="telem-section">
+          <div class="section-label">GPU PIPELINE</div>
+
+          <div class="metric-row">
+            <span class="metric-label">Frame Rate</span>
+            <span class="metric-value accent" id="met-fps">00.0</span>
+            <span class="metric-unit">FPS</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Frame Time</span>
+            <span class="metric-value" id="met-frametime">00.00</span>
+            <span class="metric-unit">ms</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">GPU Load</span>
+            <span class="metric-value warn" id="met-gpuload">00</span>
+            <span class="metric-unit">%</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">VRAM Used</span>
+            <span class="metric-value" id="met-vram">000</span>
+            <span class="metric-unit">MiB</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Shader Calls</span>
+            <span class="metric-value" id="met-shaders">000K</span>
+            <span class="metric-unit">/s</span>
+          </div>
+
+          <div class="gauge-bar-wrap">
+            <div class="gauge-label">
+              <span>GPU UTIL</span><span id="gpu-util-pct">0%</span>
+            </div>
+            <div class="gauge-track">
+              <div class="gauge-fill gpu-fill" id="gauge-gpu"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- WASM Metrics -->
+        <section class="telem-section">
+          <div class="section-label">WASM / RUST ENGINE</div>
+
+          <div class="metric-row">
+            <span class="metric-label">Heap Used</span>
+            <span class="metric-value accent" id="met-heap">000</span>
+            <span class="metric-unit">MiB</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Heap Limit</span>
+            <span class="metric-value dim" id="met-heap-max">512</span>
+            <span class="metric-unit">MiB</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">GC Pressure</span>
+            <span class="metric-value ok" id="met-gc">LOW</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Worker State</span>
+            <span class="metric-value ok">ACTIVE</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">SAB Channels</span>
+            <span class="metric-value accent">3</span>
+          </div>
+
+          <div class="gauge-bar-wrap">
+            <div class="gauge-label">
+              <span>WASM HEAP</span><span id="wasm-heap-pct">0%</span>
+            </div>
+            <div class="gauge-track">
+              <div class="gauge-fill wasm-fill" id="gauge-wasm"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Neural Metrics -->
+        <section class="telem-section">
+          <div class="section-label">NEURAL ENGINE</div>
+
+          <div class="metric-row">
+            <span class="metric-label">Infer Time</span>
+            <span class="metric-value accent" id="met-infer">0.00</span>
+            <span class="metric-unit">ms</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Throughput</span>
+            <span class="metric-value" id="met-throughput">0.0</span>
+            <span class="metric-unit">GFLOP/s</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Layers Active</span>
+            <span class="metric-value accent" id="met-layers">12</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">AI State</span>
+            <span class="metric-value state-pulse" id="met-ai-state">INFERRING</span>
+          </div>
+
+          <!-- Mini sparkline -->
+          <div class="sparkline-wrap">
+            <canvas id="sparkline-infer" width="180" height="36" title="Inference time history"></canvas>
+          </div>
+        </section>
+
+      </aside>
+
+      <!-- CENTER — Canvas is behind, this area shows floating overlays -->
+      <div id="center-stage">
+
+        <!-- Mode indicator (top of canvas) -->
+        <div class="mode-badge" id="mode-badge">
+          <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="5" r="1.5" fill="currentColor"/></svg>
+          <span id="mode-label">DOME · FISHEYE PROJECTION</span>
+        </div>
+
+        <!-- Star count overlay -->
+        <div class="canvas-info-bar">
+          <span class="info-chip">
+            <span class="chip-label">STARS</span>
+            <span class="chip-value" id="inf-stars">---</span>
+          </span>
+          <span class="info-chip">
+            <span class="chip-label">ALT LIMIT</span>
+            <span class="chip-value">0°</span>
+          </span>
+          <span class="info-chip">
+            <span class="chip-label">MAG LIMIT</span>
+            <span class="chip-value" id="inf-maglim">6.5</span>
+          </span>
+          <span class="info-chip">
+            <span class="chip-label">PROJECTION</span>
+            <span class="chip-value">EQ-AZIMUTHAL</span>
+          </span>
+        </div>
+
+        <!-- Crosshair reticle (center of dome) -->
+        <div class="reticle" aria-hidden="true">
+          <div class="reticle-h"></div>
+          <div class="reticle-v"></div>
+          <div class="reticle-circle"></div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT PANEL — Controls -->
+      <aside id="panel-right" class="glass-panel slide-in-right">
+
+        <div class="panel-header">
+          <span class="panel-tag">CTL</span>
+          <span class="panel-title">Engine Control</span>
+          <div class="panel-led ok"></div>
+        </div>
+
+        <!-- Render Mode -->
+        <section class="telem-section">
+          <div class="section-label">RENDER MODE</div>
+          <div class="mode-selector" id="mode-selector" role="radiogroup" aria-label="Render mode">
+            <button class="mode-opt active" data-mode="dome" role="radio" aria-checked="true">
+              <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 10a5 5 0 0 1 10 0" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="7" cy="4" r="2" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>
+              Planetarium Dome
+            </button>
+            <button class="mode-opt" data-mode="neural" role="radio" aria-checked="false">
+              <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="3" cy="7" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="11" cy="4" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="11" cy="10" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M4.5 7l5-3M4.5 7l5 3" stroke="currentColor" stroke-width="1" fill="none"/></svg>
+              Neural Render
+            </button>
+            <button class="mode-opt" data-mode="genetic" role="radio" aria-checked="false">
+              <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 2c4 3 4 7 8 10M3 12c4-3 4-7 8-10" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="7" cy="7" r="1" fill="currentColor"/></svg>
+              Genetic Evolution
+            </button>
+          </div>
+        </section>
+
+        <!-- Dome Controls -->
+        <section class="telem-section" id="ctrl-dome">
+          <div class="section-label">DOME PARAMETERS</div>
+
+          <div class="ctrl-row">
+            <label class="ctrl-label" for="sl-fov">FOV</label>
+            <input type="range" id="sl-fov" min="90" max="220" value="180" class="hud-slider" />
+            <span class="ctrl-readout" id="out-fov">180°</span>
+          </div>
+          <div class="ctrl-row">
+            <label class="ctrl-label" for="sl-tilt">Dome Tilt</label>
+            <input type="range" id="sl-tilt" min="0" max="45" value="23" step="0.5" class="hud-slider" />
+            <span class="ctrl-readout" id="out-tilt">23.0°</span>
+          </div>
+          <div class="ctrl-row">
+            <label class="ctrl-label" for="sl-maglim">Mag Limit</label>
+            <input type="range" id="sl-maglim" min="2" max="8" value="6.5" step="0.5" class="hud-slider" />
+            <span class="ctrl-readout" id="out-maglim">6.5</span>
+          </div>
+          <div class="ctrl-row">
+            <label class="ctrl-label" for="sl-extinct">Extinction</label>
+            <input type="range" id="sl-extinct" min="0" max="1" value="0.3" step="0.05" class="hud-slider" />
+            <span class="ctrl-readout" id="out-extinct">0.30</span>
+          </div>
+          <div class="ctrl-row">
+            <label class="ctrl-label" for="sl-timewarp">Time Warp</label>
+            <input type="range" id="sl-timewarp" min="-100" max="100" value="1" step="1" class="hud-slider accent" />
+            <span class="ctrl-readout accent" id="out-timewarp">1×</span>
+          </div>
+
+          <div class="ctrl-toggles">
+            <button class="toggle-btn active" id="tog-milkyway">Milky Way</button>
+            <button class="toggle-btn active" id="tog-scintil">Scintillation</button>
+            <button class="toggle-btn" id="tog-constellation">Constellations</button>
+            <button class="toggle-btn active" id="tog-grid">Alt/Az Grid</button>
+          </div>
+        </section>
+
+        <!-- Genetic Optimizer Controls -->
+        <section class="telem-section">
+          <div class="section-label">GENETIC OPTIMIZER</div>
+
+          <div class="metric-row">
+            <span class="metric-label">Generation</span>
+            <span class="metric-value accent" id="met-gen">0000</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Best Fitness</span>
+            <span class="metric-value ok" id="met-fitness">0.00</span>
+            <span class="metric-unit">op/ms</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Population</span>
+            <span class="metric-value dim">32</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">Mutation Rate</span>
+            <span class="metric-value dim">5%</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-label">WGS Config</span>
+            <span class="metric-value accent" id="met-wgs">16×16</span>
+          </div>
+
+          <button class="action-btn full-width" id="btn-evolve">
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1v5l3 3M2 6a4 4 0 1 0 8 0 4 4 0 0 0-8 0" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>
+            EVOLVE GENERATION
+          </button>
+        </section>
+
+        <!-- P2P Network -->
+        <section class="telem-section">
+          <div class="section-label">P2P NEURAL SYNC</div>
+          <div class="peer-list" id="peer-list">
+            <div class="peer-item offline">
+              <div class="peer-dot"></div>
+              <span class="peer-id">Awaiting peers...</span>
+            </div>
+          </div>
+          <div class="metric-row" style="margin-top:8px">
+            <span class="metric-label">Sync Rate</span>
+            <span class="metric-value accent" id="met-syncrate">0</span>
+            <span class="metric-unit">pkg/s</span>
+          </div>
+          <button class="action-btn full-width" id="btn-p2p" style="margin-top:8px">
+            <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="2.5" cy="6" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="9.5" cy="2.5" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="9.5" cy="9.5" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M4 6l4-3M4 6l4 3" stroke="currentColor" stroke-width="1"/></svg>
+            CONNECT PEER
+          </button>
+        </section>
+
+      </aside>
+
+    </main>
+
+    <!-- ── BOTTOM TELEMETRY BAR ────────────────────────── -->
+    <footer id="telemetry-bar">
+
+      <div class="telem-chips">
+        <div class="telem-chip">
+          <span class="chip-key">WEBGPU</span>
+          <span class="chip-val ok" id="chip-webgpu">SIMULATED</span>
+        </div>
+        <div class="telem-chip">
+          <span class="chip-key">WASM</span>
+          <span class="chip-val ok" id="chip-wasm">LOADED</span>
+        </div>
+        <div class="telem-chip">
+          <span class="chip-key">WORKER</span>
+          <span class="chip-val ok">ACTIVE</span>
+        </div>
+        <div class="telem-chip">
+          <span class="chip-key">SAB</span>
+          <span class="chip-val ok">ENABLED</span>
+        </div>
+        <div class="telem-chip">
+          <span class="chip-key">PREFLIGHT</span>
+          <span class="chip-val ok">PASS</span>
+        </div>
+        <div class="telem-chip">
+          <span class="chip-key">SHADER-F16</span>
+          <span class="chip-val warn">NO</span>
+        </div>
+      </div>
+
+      <div class="telem-center">
+        <div class="live-ticker" id="live-ticker" aria-live="polite"></div>
+      </div>
+
+      <div class="telem-right">
+        <div class="telem-chip">
+          <span class="chip-key">GPU MEM</span>
+          <span class="chip-val accent" id="chip-gpumem">-- MiB</span>
+        </div>
+        <div class="telem-chip">
+          <span class="chip-key">FPS</span>
+          <span class="chip-val accent" id="chip-fps">--</span>
+        </div>
+        <div class="telem-chip">
+          <span class="chip-key">AI STATE</span>
+          <span class="chip-val state-pulse" id="chip-ai">IDLE</span>
+        </div>
+      </div>
+
+    </footer>
+
+    <!-- ── FLOATING TERMINAL ───────────────────────────── -->
+    <div id="terminal-window" class="glass-panel floating-panel" role="log" aria-label="System terminal">
+      <div class="float-drag-handle" id="term-handle">
+        <div class="float-handle-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <span class="float-title">SYSTEM LOG · RUST/WASM</span>
+        <div class="float-controls">
+          <button class="float-btn" id="term-minimize" title="Minimize" aria-label="Minimize terminal">─</button>
+          <button class="float-btn" id="term-close" title="Close" aria-label="Close terminal">✕</button>
+        </div>
+      </div>
+      <div class="terminal-body" id="terminal-body">
+        <div class="term-line">
+          <span class="term-ts">00:00:00.000</span>
+          <span class="term-cat ok">[BOOT]</span>
+          <span class="term-msg">Athanas Neural Engine initializing...</span>
+        </div>
+      </div>
+      <div class="terminal-input-row">
+        <span class="term-prompt">athanas&gt;</span>
+        <input type="text" class="term-input" id="term-input" placeholder="enter command..." autocomplete="off" spellcheck="false" />
+      </div>
+    </div>
+
+    <!-- ── REOPEN TERMINAL BUTTON (shown when closed) ─── -->
+    <button id="btn-open-terminal" class="hud-btn corner-btn" title="Open terminal" aria-label="Open terminal" hidden>
+      <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 2h10v8H1zM1 5h10M4 2v3" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+      TERMINAL
+    </button>
+
+    <!-- ── GENETIC EVOLUTION OVERLAY ──────────────────── -->
+    <div id="evolution-overlay" class="glass-panel floating-panel" aria-hidden="true" hidden>
+      <div class="float-drag-handle">
+        <div class="float-handle-dots"><span></span><span></span><span></span></div>
+        <span class="float-title">GENETIC OPTIMIZER · CHROMOSOME MAP</span>
+        <button class="float-btn" id="evo-close" aria-label="Close evolution panel">✕</button>
+      </div>
+      <div class="chromo-map" id="chromo-map"></div>
+      <div class="evo-stats">
+        <div class="evo-stat">
+          <span class="evo-stat-label">GENERATION</span>
+          <span class="evo-stat-val" id="evo-gen">0</span>
+        </div>
+        <div class="evo-stat">
+          <span class="evo-stat-label">BEST FITNESS</span>
+          <span class="evo-stat-val accent" id="evo-fit">0.00</span>
+        </div>
+        <div class="evo-stat">
+          <span class="evo-stat-label">DIVERSITY</span>
+          <span class="evo-stat-val" id="evo-div">—</span>
+        </div>
+        <div class="evo-stat">
+          <span class="evo-stat-label">ETA CONVERGE</span>
+          <span class="evo-stat-val dim" id="evo-eta">—</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /#hud-root -->
+
+  <script src="main.js" type="module"></script>
+</body>
+</html>
