@@ -958,3 +958,17 @@ if (document.readyState === 'loading') {
 }
 
 export {};
+['StarChart initialized: Cyprus Lat=34.7', 'ok', 1800],
+    ['SYSTEM READY - STAGGERED BOOT COMPLETE', 'ok', 2200]
+  ];
+
+  bootMsgs.forEach(([msg, type, delay]) => {
+    setTimeout(() => log(msg, type), delay);
+  });
+
+  // Έναρξη του Render Loop
+  requestAnimationFrame(renderFrame);
+}
+
+// Εκτέλεση του Boot μόλις φορτώσει η σελίδα
+window.addEventListener('DOMContentLoaded', boot);
