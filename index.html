@@ -1,18 +1,143 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="el">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ATHANAS - Mission Control</title>
+    <title>ATHANAS | Mission Control HUD | QUANTUM CORE</title>
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600;700&family=JetBrains+Mono:wght@300;400;700&display=swap" rel="stylesheet">
 </head>
 <body>
+    <canvas id="webgpu-canvas"></canvas>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
 
-    <div id="app-container">
-        <div class="loading-screen">
-            <h1>ATHANAS SYSTEM INITIALIZING...</h1>
-            <p>If you see this, the CSS is loading correctly.</p>
+    <div id="hud-root">
+        <header id="top-bar">
+            <div class="top-left">
+                <div class="wordmark">
+                    <span class="wordmark-ath">ATH</span><span class="wordmark-anas">ANAS</span>
+                    <span class="wordmark-version">v1.0.0-QUANTUM</span>
+                </div>
+                <div class="header-divider"></div>
+                <div class="mission-id">
+                    <span class="label">MISSION_ID</span>
+                    <span class="value">CY-DALI-ORBITAL</span>
+                </div>
+            </div>
+            
+            <div class="top-center">
+                <div class="system-status">
+                    <div class="pulse-ring"></div>
+                    <div class="pulse-dot"></div>
+                    <span id="sys-status-text">SYSTEM_NOMINAL</span>
+                </div>
+            </div>
+
+            <div class="top-right">
+                <div class="header-clock">
+                    <span class="label">UTC / JULIAN DATE</span>
+                    <span id="top-clock" class="clock-value">00:00:00 | JD 0.0</span>
+                </div>
+                <button class="hud-btn" id="btn-reboot">REBOOT CORE</button>
+                <button class="hud-btn" id="btn-emergency">ABORT</button>
+            </div>
+        </header>
+
+        <main id="main-stage">
+            <aside id="panel-left" class="glass-panel slide-in-left">
+                <div class="panel-header">
+                    <span class="panel-tag">TLM</span>
+                    <span class="panel-title">Astro-Telemetry</span>
+                    <div class="panel-led ok" id="led-tlm"></div>
+                </div>
+                <div class="telem-section">
+                    <div class="section-label">Render Pipeline</div>
+                    <div class="metric-row"><span class="metric-label">Target FPS</span><span id="met-fps" class="metric-value accent">0.0</span></div>
+                    <div class="metric-row"><span class="metric-label">Frame Time</span><span id="met-ftime" class="metric-value">0.0</span><span class="metric-unit">ms</span></div>
+                    <div class="metric-row"><span class="metric-label">Active Stars</span><span id="met-stars" class="metric-value">0</span></div>
+                    
+                    <div class="gauge-bar-wrap">
+                        <div class="gauge-label"><span>VRAM ALLOCATION</span><span id="vram-val">12%</span></div>
+                        <div class="gauge-track"><div id="vram-fill" class="gauge-fill gpu-fill" style="width: 12%"></div></div>
+                    </div>
+                </div>
+                <div class="telem-section">
+                    <div class="section-label">Optical Controls</div>
+                    <div class="ctrl-row">
+                        <label class="ctrl-label">FOV</label>
+                        <input type="range" id="sl-fov" class="hud-slider" min="30" max="180" value="180">
+                        <span id="readout-fov" class="ctrl-readout">180°</span>
+                    </div>
+                    <div class="ctrl-row">
+                        <label class="ctrl-label">EXPOSURE</label>
+                        <input type="range" id="sl-maglim" class="hud-slider accent" min="0" max="10" step="0.1" value="6.5">
+                        <span id="readout-mag" class="ctrl-readout accent">6.5</span>
+                    </div>
+                    <div class="ctrl-row">
+                        <label class="ctrl-label">TIME WARP</label>
+                        <input type="range" id="sl-time" class="hud-slider" min="0" max="1000" value="1">
+                        <span id="readout-time" class="ctrl-readout">1x</span>
+                    </div>
+                </div>
+            </aside>
+
+            <section id="center-stage">
+                <div class="canvas-info-bar">
+                    <div class="info-chip"><span class="chip-label">LAT</span><span class="chip-value">34.92N</span></div>
+                    <div class="info-chip"><span class="chip-label">LNG</span><span class="chip-value">33.41E</span></div>
+                    <div class="info-chip"><span class="chip-label">ELEV</span><span class="chip-value">220m</span></div>
+                </div>
+                <div class="reticle">
+                    <div class="reticle-h"></div>
+                    <div class="reticle-v"></div>
+                    <div class="reticle-circle"></div>
+                    <div class="reticle-crosshair"></div>
+                </div>
+            </section>
+
+            <aside id="panel-right" class="glass-panel slide-in-right">
+                <div class="panel-header">
+                    <span class="panel-tag">NET</span>
+                    <span class="panel-title">Neural Mesh & P2P</span>
+                    <div class="panel-led warn" id="led-net"></div>
+                </div>
+                <div class="telem-section">
+                    <div class="section-label">Genetic Algorithm Core</div>
+                    <div class="chromo-map" id="chromo-map"></div>
+                    <div class="evo-stats">
+                        <div class="evo-stat"><span class="evo-stat-label">GEN</span><span id="evo-gen" class="evo-stat-val">0</span></div>
+                        <div class="evo-stat"><span class="evo-stat-label">FITNESS</span><span id="evo-fit" class="evo-stat-val accent">0.000</span></div>
+                        <div class="evo-stat"><span class="evo-stat-label">MUT_RATE</span><span id="evo-mut" class="evo-stat-val">0.05</span></div>
+                    </div>
+                </div>
+                <div class="telem-section">
+                    <div class="section-label">WebRTC Peer Nodes</div>
+                    <div class="peer-list" id="peer-list"></div>
+                </div>
+            </aside>
+        </main>
+
+        <footer id="telemetry-bar">
+            <div class="telem-chips">
+                <div class="telem-chip"><span class="chip-key">MEM:</span><span class="chip-val" id="foot-mem">OK</span></div>
+                <div class="telem-chip"><span class="chip-key">WASM:</span><span class="chip-val ok">ACTIVE</span></div>
+            </div>
+            <div class="telem-center">
+                <div class="live-ticker" id="live-ticker">AWAITING SYSTEM BOOT...</div>
+            </div>
+        </footer>
+    </div>
+
+    <div id="terminal-window" class="floating-panel glass-panel">
+        <div class="float-drag-handle">
+            <div class="float-handle-dots"><span></span><span></span><span></span></div>
+            <span class="float-title">ATHANAS_BASH v1.0</span>
+        </div>
+        <div class="terminal-body" id="terminal-body"></div>
+        <div class="terminal-input-row">
+            <span class="term-prompt">root@athanas:~#</span>
+            <input type="text" class="term-input" id="term-input" placeholder="Type 'help' for commands..." autocomplete="off">
         </div>
     </div>
 
